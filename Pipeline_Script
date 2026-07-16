@@ -1,0 +1,57 @@
+pipeline {
+    agent { label 'project1' }
+    tools {
+        maven 'mymaven'
+    }
+    stages {
+        stage('CODE') {
+            steps {
+                git 'https://github.com/imjk04/java_docker_project.git'
+            }
+        }
+        stage('CQA') {
+            steps {
+                withSonarQubeEnv('mysonar') {
+                    sh "mvn clean verify sonar:sonar -Dsonar.projectKey=project1"
+                }
+            }
+        }
+        stage('BUILD') {
+            steps {
+                sh 'mvn clean install'
+                sh 'cp -r target Docker-app'//Will copy the target folder to Dockerapp folder as we need to build image, and dfile is there init
+            }
+        }
+        stage('ARTIFACT') {
+            steps {
+                nexusArtifactUploader artifacts: [[artifactId: 'vprofile', classifier: '', file: 'target/vprofile-v2.war', type: 'war']], credentialsId: '0d0242d1-d818-41d4-a8b1-f368800e5003', groupId: 'com.visualpathit', nexusUrl: '98.81.171.10:8081', nexusVersion: 'nexus3', protocol: 'http', repository: 'nexusrepo', version: 'v2'
+            }
+        }
+        stage('IMAGE_CREATION') {
+            steps {
+                sh 'docker build -t imjk04/auto:db Docker-db'
+                sh 'docker build -t imjk04/auto:app Docker-app'
+            }
+        } 
+        stage('IMAGE_SCAN') {
+            steps {
+                sh 'trivy image imjk04/auto:db'
+                sh 'trivy image imjk04/auto:app'
+            }
+        }
+        stage('IMAGE_PUSH') {
+            steps {
+                withDockerRegistry(credentialsId: 'docker_cred') {
+                    sh 'docker push imjk04/auto:db'
+                    sh 'docker push imjk04/auto:app'
+                }
+            }
+        }
+        stage('DEPLOY') {
+            steps {
+                sh 'docker stack deploy -c compose.yml stack1'
+            }
+        }
+    }
+}
+
